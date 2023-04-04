@@ -1,10 +1,30 @@
 use std::env;
 
 use serenity::async_trait;
-use serenity::prelude::*;
-use serenity::model::channel::Message;
 use serenity::framework::standard::macros::{command, group};
-use serenity::framework::standard::{StandardFramework, CommandResult};
+use serenity::framework::standard::{CommandResult, StandardFramework};
+use serenity::model::channel::Message;
+use serenity::prelude::*;
+
+use reqwest::Error;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct Response {
+    data: Data,
+}
+
+#[derive(Debug, Deserialize)]
+struct Data {
+    content: Vec<Post>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Post {
+    title: String,
+    url: String,
+    score: i32,
+}
 
 #[group]
 #[commands(ping)]
@@ -39,6 +59,26 @@ async fn main() {
 #[command]
 async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(ctx, "Pong!").await?;
+
+    Ok(())
+}
+
+#[command]
+async fn fetch_top_post(ctx: &Context, msg: &Message) -> CommandResult {
+    let response = reqwest::get("https://www.reddit.com/r/LifeProTips/top.json?limit=1")
+        .await?
+        .json::<Response>()
+        .await?;
+
+    let post = &response.data.content[0];
+    msg.reply(
+        ctx,
+        format!(
+            "Top post on r/rust is \"{}\" with {} points: {}",
+            post.title, post.score, post.url
+        ),
+    )
+    .await?;
 
     Ok(())
 }
