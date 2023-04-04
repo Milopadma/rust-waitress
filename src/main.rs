@@ -30,6 +30,7 @@ struct Post {
 
 #[group]
 #[commands(ping)]
+#[commands(fetchtoppost)]
 struct General;
 
 struct Handler;
@@ -67,13 +68,23 @@ async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 }
 
 #[command]
-async fn fetch_top_post(ctx: &Context, msg: &Message) -> CommandResult {
-    let response = reqwest::get("https://www.reddit.com/r/LifeProTips/top.json?limit=1")
+async fn fetchtoppost(ctx: &Context, msg: &Message) -> CommandResult {
+    println!("Fetching top post from r/rust");
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://www.reddit.com/r/LifeProTips/top.json?limit=1")
+        .header("User-Agent", "rustbot")
+        .send()
         .await?
         .json::<Response>()
         .await?;
+    println!("{:?}", response);
 
     let post = &response.data.content[0];
+    println!(
+        "Top post on r/rust is \"{}\" with {} points: {}",
+        post.title, post.score, post.url
+    );
     msg.reply(
         ctx,
         format!(
