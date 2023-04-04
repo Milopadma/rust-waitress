@@ -9,6 +9,8 @@ use serenity::prelude::*;
 use reqwest::Error;
 use serde::Deserialize;
 
+use dotenv::dotenv;
+
 #[derive(Debug, Deserialize)]
 struct Response {
     data: Data,
@@ -42,6 +44,7 @@ async fn main() {
         .group(&GENERAL_GROUP);
 
     // Login with a bot token from the environment
+    dotenv().ok();
     let token = env::var("DISCORD_TOKEN").expect("token");
     let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(token, intents)
