@@ -6,6 +6,8 @@ use serenity::framework::standard::{CommandResult, StandardFramework};
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 
+use rawr::prelude::*;
+
 use reqwest::Error;
 use serde::Deserialize;
 
@@ -62,6 +64,7 @@ async fn main() {
 
 #[command]
 async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
+    println!("Pong!");
     msg.reply(ctx, "Pong!").await?;
 
     Ok(())
@@ -70,21 +73,20 @@ async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn fetchtoppost(ctx: &Context, msg: &Message) -> CommandResult {
     println!("Fetching top post from r/rust");
-    let client = reqwest::Client::new();
-    let response = client
-        .get("https://www.reddit.com/r/LifeProTips/top.json?limit=1")
-        .header("User-Agent", "rustbot")
-        .send()
-        .await?
-        .json::<Response>()
-        .await?;
-    println!("{:?}", response);
+    let client_id = env::var("REDDIT_CLIENT_ID").expect("client_id");
+    let client_secret = env::var("REDDIT_CLIENT_SECRET").expect("client_secret");
+    let client = rawr::Client::new("rustbot-rs", client_id, client_secret);
 
-    let post = &response.data.content[0];
-    println!(
-        "Top post on r/rust is \"{}\" with {} points: {}",
-        post.title, post.score, post.url
-    );
+    // get the subreddit and post
+    let subreddit = client.subreddit("LifeProTips");
+    let post = subreddit
+        .top()
+        .limit(1)
+        .fetch()
+        .await
+        .expect("Error fetching top post");
+    println!("Resp: {:?}", post);
+
     msg.reply(
         ctx,
         format!(
