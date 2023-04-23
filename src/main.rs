@@ -6,7 +6,9 @@ use serenity::framework::standard::{CommandResult, StandardFramework};
 use serenity::model::channel::Message;
 use serenity::prelude::*;
 
-use rawr::prelude::*;
+// use rawr::prelude::*;
+use rand::Rng;
+use roux::Subreddit;
 
 use reqwest::Error;
 use serde::Deserialize;
@@ -73,28 +75,46 @@ async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn fetchtoppost(ctx: &Context, msg: &Message) -> CommandResult {
     println!("Fetching top post from r/rust");
-    let client_id = env::var("REDDIT_CLIENT_ID").expect("client_id");
-    let client_secret = env::var("REDDIT_CLIENT_SECRET").expect("client_secret");
-    let client = rawr::Client::new("rustbot-rs", client_id, client_secret);
+
+    // random number from 0-5
+    let rand_num: usize = rand::thread_rng().gen_range(0..5);
 
     // get the subreddit and post
-    let subreddit = client.subreddit("LifeProTips");
-    let post = subreddit
-        .top()
-        .limit(1)
-        .fetch()
-        .await
-        .expect("Error fetching top post");
-    println!("Resp: {:?}", post);
+    let subreddit = Subreddit::new("LifeProTips");
+    let posts = subreddit.top(5, None).await.unwrap();
+    // println!("Resp: {:?}", posts);
 
     msg.reply(
         ctx,
         format!(
-            "Top post on r/rust is \"{}\" with {} points: {}",
-            post.title, post.score, post.url
+            "Current Top post on r/LifeProTips is \"{}\" with {} points.",
+            posts.data.children.get(rand_num).unwrap().data.title,
+            posts.data.children.get(rand_num).unwrap().data.score,
         ),
     )
     .await?;
+
+    // post an embedded URL to the text channel
+    msg.channel_id
+        .send_message(ctx, |m| {
+            m.embed(|e| {
+                e.title(&posts.data.children.get(rand_num).unwrap().data.title);
+                e.url(
+                    &posts
+                        .data
+                        .children
+                        .get(rand_num)
+                        .unwrap()
+                        .data
+                        .url
+                        .as_ref()
+                        .unwrap(),
+                );
+                e
+            });
+            m
+        })
+        .await?;
 
     Ok(())
 }
