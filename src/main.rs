@@ -1,120 +1,110 @@
-use std::env;
-
+use anyhow::anyhow;
 use serenity::async_trait;
-use serenity::framework::standard::macros::{command, group};
-use serenity::framework::standard::{CommandResult, StandardFramework};
 use serenity::model::channel::Message;
+use serenity::model::gateway::Ready;
 use serenity::prelude::*;
+use shuttle_secrets::SecretStore;
+use tracing::{error, info};
 
-// use rawr::prelude::*;
 use rand::Rng;
+
 use roux::Subreddit;
 
-use reqwest::Error;
-use serde::Deserialize;
-
-use dotenv::dotenv;
-
-#[derive(Debug, Deserialize)]
-struct Response {
-    data: Data,
-}
-
-#[derive(Debug, Deserialize)]
-struct Data {
-    content: Vec<Post>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Post {
-    title: String,
-    url: String,
-    score: i32,
-}
-
-#[group]
-#[commands(ping)]
-#[commands(fetchtoppost)]
-struct General;
-
-struct Handler;
+struct Bot;
 
 #[async_trait]
-impl EventHandler for Handler {}
+impl EventHandler for Bot {
+    async fn message(&self, ctx: Context, msg: Message) {
+        if msg.content == "!hello" {
+            if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
+                error!("Error sending message: {:?}", e);
+            }
+        }
+        // get the message content after "!subscribe"
+        if msg.content.starts_with("!subscribe") {
+            let messagesub = msg.content.trim_start_matches("!subscribe");
+            let subreddit = Subreddit::new(messagesub.trim());
 
-#[tokio::main]
-async fn main() {
-    let framework = StandardFramework::new()
-        .configure(|c| c.prefix("~")) // set the bot's prefix to "~"
-        .group(&GENERAL_GROUP);
+            if let Err(e) = msg
+                .channel_id
+                .say(&ctx.http, format!("Subscribed to{}", messagesub))
+                .await
+            {
+                error!("Error sending message: {:?}", e);
+            }
 
-    // Login with a bot token from the environment
-    dotenv().ok();
-    let token = env::var("DISCORD_TOKEN").expect("token");
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT;
-    let mut client = Client::builder(token, intents)
-        .event_handler(Handler)
-        .framework(framework)
-        .await
-        .expect("Error creating client");
+            // invoke async function loop that subcribes to that subreddit and sends posts to the discord channel every 24 hours
+            subscribe(subreddit, msg, ctx).await;
+        }
+    }
 
-    // start listening for events by starting a single shard
-    if let Err(why) = client.start().await {
-        println!("An error occurred while running the client: {:?}", why);
+    async fn ready(&self, _: Context, ready: Ready) {
+        info!("{} is connected!", ready.user.name);
     }
 }
 
-#[command]
-async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    println!("Pong!");
-    msg.reply(ctx, "Pong!").await?;
+async fn subscribe(subreddit: Subreddit, msg: Message, ctx: Context) {
+    // loop that sends posts to the discord channel every 24 hours
+    loop {
+        // get the top post from the subreddit
+        let posts = subreddit.hot(25, None).await.unwrap();
 
-    Ok(())
+        // randomize get post
+        let post = posts
+            .data
+            .children
+            .get(rand::thread_rng().gen_range(0..5))
+            .unwrap();
+        // since the image url is an optional, we need to check if it exists
+        // by matching if its a "self" or "default"
+        let imageurl = match &post.data.thumbnail {
+            url => match url.as_str() {
+                "self" => None,
+                "default" => None,
+                _ => Some(url.as_str()),
+            },
+            _ => unreachable!("Thumbnail is not a string"),
+        };
+
+        println!("{:?}", &post.data.thumbnail);
+        if let Err(e) = msg
+            .channel_id
+            .send_message(&ctx.http, |m| {
+                m.embed(|e| {
+                    e.title(&post.data.title)
+                        .url(&post.data.url.as_ref().unwrap())
+                        .description(&post.data.selftext)
+                        .image(imageurl.unwrap_or("https://i.imgur.com/3QXVqyN.png"))
+                })
+            })
+            .await
+        {
+            error!("Error sending message: {:?}", e);
+        }
+
+        // wait 24 hours
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+    }
 }
 
-#[command]
-async fn fetchtoppost(ctx: &Context, msg: &Message) -> CommandResult {
-    println!("Fetching top post from r/rust");
+#[shuttle_runtime::main]
+async fn serenity(
+    #[shuttle_secrets::Secrets] secret_store: SecretStore,
+) -> shuttle_serenity::ShuttleSerenity {
+    // Get the discord token set in `Secrets.toml`
+    let token = if let Some(token) = secret_store.get("DISCORD_TOKEN") {
+        token
+    } else {
+        return Err(anyhow!("'DISCORD_TOKEN' was not found").into());
+    };
 
-    // random number from 0-5
-    let rand_num: usize = rand::thread_rng().gen_range(0..5);
+    // Set gateway intents, which decides what events the bot will be notified about
+    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
 
-    // get the subreddit and post
-    let subreddit = Subreddit::new("LifeProTips");
-    let posts = subreddit.top(5, None).await.unwrap();
-    // println!("Resp: {:?}", posts);
+    let client = Client::builder(&token, intents)
+        .event_handler(Bot)
+        .await
+        .expect("Err creating client");
 
-    msg.reply(
-        ctx,
-        format!(
-            "Current Top post on r/LifeProTips is \"{}\" with {} points.",
-            posts.data.children.get(rand_num).unwrap().data.title,
-            posts.data.children.get(rand_num).unwrap().data.score,
-        ),
-    )
-    .await?;
-
-    // post an embedded URL to the text channel
-    msg.channel_id
-        .send_message(ctx, |m| {
-            m.embed(|e| {
-                e.title(&posts.data.children.get(rand_num).unwrap().data.title);
-                e.url(
-                    &posts
-                        .data
-                        .children
-                        .get(rand_num)
-                        .unwrap()
-                        .data
-                        .url
-                        .as_ref()
-                        .unwrap(),
-                );
-                e
-            });
-            m
-        })
-        .await?;
-
-    Ok(())
+    Ok(client.into())
 }
