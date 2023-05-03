@@ -27,7 +27,13 @@ impl EventHandler for Bot {
 
             if let Err(e) = msg
                 .channel_id
-                .say(&ctx.http, format!("Subscribed to{}", messagesub))
+                .say(
+                    &ctx.http,
+                    format!(
+                        "Subscribed to{}, will send new post every 24 hours.",
+                        messagesub
+                    ),
+                )
                 .await
             {
                 error!("Error sending message: {:?}", e);
@@ -44,6 +50,8 @@ impl EventHandler for Bot {
 }
 
 async fn subscribe(subreddit: Subreddit, msg: Message, ctx: Context) {
+    // todo! to check if the subreddit exists or not
+
     // loop that sends posts to the discord channel every 24 hours
     loop {
         // get the top post from the subreddit
@@ -83,7 +91,7 @@ async fn subscribe(subreddit: Subreddit, msg: Message, ctx: Context) {
         }
 
         // wait 24 hours
-        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(86400)).await;
     }
 }
 
