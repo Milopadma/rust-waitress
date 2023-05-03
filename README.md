@@ -10,4 +10,4 @@ a great learning opportunity to rewrite an app in a language you want to learn
 
 # references
 Discord Rust Library Crate [serenity-rs](https://github.com/serenity-rs/serenity)
-Hosting [https://docs.shuttle.rs] 
+Hosting [shuttle.rs](https://docs.shuttle.rs)
